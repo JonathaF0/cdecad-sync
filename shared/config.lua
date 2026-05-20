@@ -4,9 +4,7 @@
 
 Config = {}
 
-Config.API_URL = ''
-Config.API_KEY = ''
-Config.COMMUNITY_ID = ''
+
 Config.Framework = nil   -- set by shared/framework_detect.lua
 
 -- =============================================================================
