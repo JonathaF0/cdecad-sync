@@ -18,11 +18,9 @@ shared_scripts {
     'shared/vehicles.lua',
 }
 
--- Load order: secrets before main; adapters before bootstrap.
 server_scripts {
     'server/secrets.lua',
     'server/api.lua',
-    'server/discord.lua',
 
     'adapters/esx_adapter.lua',
     'adapters/qbcore_adapter.lua',
@@ -37,7 +35,6 @@ server_scripts {
 
 client_scripts {
     'client/main.lua',
-    'client/911.lua',
     'adapters/nat2k15_adapter_client.lua',
 }
 
