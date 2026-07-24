@@ -1,25 +1,8 @@
---[[
-    QBCore adapter for cde-cad-sync.
 
-    Implements the Adapter contract defined in adapters/adapter.lua against
-    the qb-core framework. Only activated when Config.Framework == 'qbcore'
-    (which framework_detect.lua / bootstrap.lua set based on the started
-    resources).
 
-    QBCore-specific notes:
-      * Identifier of record is `citizenid` — also used as the CAD SSN.
-      * `charinfo` holds firstname / lastname / birthdate / gender / phone.
-      * `gender` is 0/1 (numeric) on stock QBCore, but some forks store
-        'male'/'female' strings — Config.GenderMapping covers both.
-      * `player_vehicles.vehicle` already stores the spawn name (string),
-        not a model hash — no GetHashKey lookup needed.
-]]
 
 local impl = {}
 
--- Lazily resolve the core object so this file loads even if qb-core hasn't
--- started yet. bootstrap.lua only activates us once qb-core is up, but adapter
--- file registration happens at script load time.
 local _QBCore
 local function QB()
     if not _QBCore then
@@ -29,9 +12,6 @@ local function QB()
     return _QBCore
 end
 
--- =============================================================================
--- PLAYER LOOKUP
--- =============================================================================
 
 function impl.GetPlayer(source)
     local core = QB()
@@ -57,9 +37,6 @@ function impl.GetPlayerByIdentifier(citizenid)
     return core.Functions.GetPlayerByCitizenId(citizenid)
 end
 
--- =============================================================================
--- IDENTITY
--- =============================================================================
 
 function impl.GetPlayerIdentifier(source, idType)
     if not source or not idType then return nil end
@@ -84,7 +61,6 @@ function impl.ExtractCharacterData(player)
     local pd = player.PlayerData
     local charinfo = pd.charinfo or {}
 
-    -- Normalize gender. QBCore stock = 0/1; some forks = 'male'/'female'.
     local rawGender = charinfo.gender
     local gender = Config.GenderMapping and Config.GenderMapping[rawGender]
     if not gender and type(rawGender) == 'string' then
@@ -92,7 +68,6 @@ function impl.ExtractCharacterData(player)
     end
     gender = gender or 'Male'
 
-    -- Best-effort log identifier: prefer discord, fall back to license.
     local logIdent = impl.GetPlayerIdentifier(pd.source, 'discord')
         or impl.GetPlayerIdentifier(pd.source, 'license')
 
@@ -108,9 +83,6 @@ function impl.ExtractCharacterData(player)
     }
 end
 
--- =============================================================================
--- VEHICLES
--- =============================================================================
 
 function impl.GetPlayerVehicles(source, callback)
     local player = impl.GetPlayer(source)
@@ -150,8 +122,6 @@ function impl.GetPlayerVehicles(source, callback)
                     make  = make,
                     model = model,
                     color = color,
-                    -- year intentionally omitted — QBCore doesn't track a
-                    -- registration year; the backend will render '—'.
                 }
             end
 
@@ -160,9 +130,6 @@ function impl.GetPlayerVehicles(source, callback)
     )
 end
 
--- =============================================================================
--- JOB / DUTY
--- =============================================================================
 
 function impl.GetPlayerJob(source)
     local player = impl.GetPlayer(source)
@@ -184,30 +151,18 @@ function impl.IsOnDuty(source)
     return player.PlayerData.job.onduty == true
 end
 
--- =============================================================================
--- NOTIFICATIONS
--- =============================================================================
 
 function impl.Notify(source, level, message)
     if not source or not message then return end
     TriggerClientEvent('cdecad-sync:client:notify', source, level or 'info', message)
 end
 
--- =============================================================================
--- LIFECYCLE EVENT WIRING
--- =============================================================================
---
--- Translate QBCore's native events into the framework-agnostic
--- `cdecad-sync:character*` events that server/main.lua listens for.
 
 function impl.RegisterLifecycleEvents()
     Utils.Debug('[qbcore_adapter] Registering lifecycle events')
 
-    -- Character loaded (player selected character / spawned).
     AddEventHandler('QBCore:Server:OnPlayerLoaded', function()
         local src = source
-        -- Small delay matches the original cde-cad-qbcore behaviour: charinfo
-        -- and metadata aren't always fully populated the instant this fires.
         SetTimeout(2000, function()
             local player = impl.GetPlayer(src)
             if not player or not player.PlayerData then
@@ -220,7 +175,6 @@ function impl.RegisterLifecycleEvents()
         end)
     end)
 
-    -- Character unloaded (logout, character switch, disconnect).
     AddEventHandler('QBCore:Server:OnPlayerUnload', function(src)
         local player = impl.GetPlayer(src)
         local ssn = player and player.PlayerData and player.PlayerData.citizenid
@@ -228,8 +182,6 @@ function impl.RegisterLifecycleEvents()
         TriggerEvent('cdecad-sync:characterUnloaded', src, ssn)
     end)
 
-    -- Job updated — propagate so the backend can refresh the unit/job tags
-    -- on the civilian record.
     AddEventHandler('QBCore:Server:OnJobUpdate', function(src, _job)
         local player = impl.GetPlayer(src)
         local ssn = player and player.PlayerData and player.PlayerData.citizenid
@@ -238,9 +190,6 @@ function impl.RegisterLifecycleEvents()
         TriggerEvent('cdecad-sync:characterUpdated', src, ssn)
     end)
 
-    -- Optional event — only on newer QBCore builds. Wrapping in pcall is
-    -- harmless: AddEventHandler always succeeds, the handler just never
-    -- fires on builds that don't emit it.
     AddEventHandler('QBCore:Server:OnPlayerLogout', function(src)
         local player = impl.GetPlayer(src)
         local ssn = player and player.PlayerData and player.PlayerData.citizenid
@@ -249,8 +198,5 @@ function impl.RegisterLifecycleEvents()
     end)
 end
 
--- =============================================================================
--- REGISTRATION
--- =============================================================================
 
 Adapter.register('qbcore', impl)
