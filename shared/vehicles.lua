@@ -1,12 +1,7 @@
---[[
-    CDECAD Sync - Vehicle Utilities for ESX
-    GTA V color index to name mapping and vehicle make/model resolution
-]]
 
 VehicleUtils = {}
 _G.VehicleUtils = VehicleUtils
 
--- GTA V standard vehicle color indices to readable color names
 local GTA_COLORS = {
     [0] = 'Metallic Black',
     [1] = 'Metallic Graphite Black',
@@ -169,7 +164,6 @@ local GTA_COLORS = {
     [158] = 'Brushed Gold',
 }
 
--- Simplified color name (strip "Metallic", "Matte", etc. prefixes for cleaner display)
 local function simplifyColor(colorName)
     if not colorName then return 'Unknown' end
     local simplified = colorName
@@ -182,11 +176,6 @@ local function simplifyColor(colorName)
     return simplified
 end
 
---- Resolve a GTA V color value to a readable color name.
---- Handles: number (color index), table (RGB array), string, nil.
---- Returns 'Stock' when the vehicle was never customized at a mod shop
---- (color1 missing or -1) — that's the factory-default color rather than
---- truly unknown data.
 function VehicleUtils.ResolveColor(colorValue)
     if colorValue == nil then
         return 'Stock'
@@ -202,7 +191,6 @@ function VehicleUtils.ResolveColor(colorValue)
         return 'Unknown'
     end
 
-    -- If it's a table (RGB array), try to describe it
     if type(colorValue) == 'table' then
         local r = colorValue[1] or colorValue.r
         local g = colorValue[2] or colorValue.g
@@ -217,7 +205,6 @@ function VehicleUtils.ResolveColor(colorValue)
         return 'Unknown'
     end
 
-    -- If it's already a string, return it
     if type(colorValue) == 'string' then
         if colorValue:find('lua_rapidjson') or colorValue:find('table:') then
             return 'Unknown'
@@ -232,21 +219,18 @@ function VehicleUtils.ResolveColor(colorValue)
     return 'Unknown'
 end
 
---- Convert RGB values to a basic color name
 function VehicleUtils.RGBToColorName(r, g, b)
     local brightness = (r + g + b) / 3
 
     if brightness < 30 then return 'Black' end
     if brightness > 225 and math.abs(r - g) < 30 and math.abs(g - b) < 30 then return 'White' end
 
-    -- Grays
     if math.abs(r - g) < 20 and math.abs(g - b) < 20 then
         if brightness < 80 then return 'Dark Gray' end
         if brightness < 160 then return 'Gray' end
         return 'Light Gray'
     end
 
-    -- Dominant channel matching
     if r > g and r > b then
         if g > b + 40 then
             if r > 200 and g > 150 then return 'Yellow' end
@@ -269,19 +253,12 @@ function VehicleUtils.RGBToColorName(r, g, b)
     return 'Unknown'
 end
 
---- Resolve vehicle make and model from the spawn name.
---- ESX does not have a shared vehicles list like QBCore, so we rely on
---- the display name from GTA V or parse the spawn name.
---- @param spawnName string The vehicle spawn/model name (e.g., "adder", "zentorno")
---- @return string make, string model
 function VehicleUtils.ResolveMakeModel(spawnName)
     if not spawnName or spawnName == '' then
         return 'Unknown', 'Unknown'
     end
 
-    -- Known GTA V manufacturer mapping (common vehicles)
     local MANUFACTURERS = {
-        -- Super
         adder = { 'Truffade', 'Adder' },
         zentorno = { 'Pegassi', 'Zentorno' },
         entityxf = { 'Overflod', 'Entity XF' },
@@ -300,7 +277,6 @@ function VehicleUtils.ResolveMakeModel(spawnName)
         krieger = { 'Benefactor', 'Krieger' },
         s80 = { 'Annis', 'S80RR' },
         thrax = { 'Truffade', 'Thrax' },
-        -- Sports
         elegy2 = { 'Annis', 'Elegy RH8' },
         jester = { 'Dinka', 'Jester' },
         massacro = { 'Dewbauchee', 'Massacro' },
@@ -311,7 +287,6 @@ function VehicleUtils.ResolveMakeModel(spawnName)
         sultan = { 'Karin', 'Sultan' },
         sultanrs = { 'Karin', 'Sultan RS' },
         banshee = { 'Bravado', 'Banshee' },
-        -- Muscle
         dominator = { 'Vapid', 'Dominator' },
         gauntlet = { 'Bravado', 'Gauntlet' },
         buffalo = { 'Bravado', 'Buffalo' },
@@ -319,7 +294,6 @@ function VehicleUtils.ResolveMakeModel(spawnName)
         buffalo3 = { 'Bravado', 'Buffalo STX' },
         sabregt = { 'Declasse', 'Sabre Turbo' },
         vigero = { 'Declasse', 'Vigero' },
-        -- Sedans
         schafter2 = { 'Benefactor', 'Schafter' },
         tailgater = { 'Obey', 'Tailgater' },
         fugitive = { 'Cheval', 'Fugitive' },
@@ -327,23 +301,19 @@ function VehicleUtils.ResolveMakeModel(spawnName)
         oracle2 = { 'Ubermacht', 'Oracle XS' },
         primo = { 'Albany', 'Primo' },
         washington = { 'Albany', 'Washington' },
-        -- SUVs
         baller = { 'Gallivanter', 'Baller' },
         cavalcade = { 'Albany', 'Cavalcade' },
         granger = { 'Declasse', 'Granger' },
         dubsta = { 'Benefactor', 'Dubsta' },
         xls = { 'Benefactor', 'XLS' },
-        -- Compacts
         blista = { 'Dinka', 'Blista' },
         issi2 = { 'Weeny', 'Issi' },
         panto = { 'Benefactor', 'Panto' },
-        -- Coupes
         exemplar = { 'Dewbauchee', 'Exemplar' },
         felon = { 'Lampadati', 'Felon' },
         sentinel = { 'Ubermacht', 'Sentinel' },
         sentinel2 = { 'Ubermacht', 'Sentinel XS' },
         zion = { 'Ubermacht', 'Zion' },
-        -- Emergency
         police = { 'Police', 'Cruiser' },
         police2 = { 'Police', 'Cruiser 2' },
         police3 = { 'Police', 'Interceptor' },
@@ -353,18 +323,15 @@ function VehicleUtils.ResolveMakeModel(spawnName)
         sheriff2 = { 'Sheriff', 'SUV' },
         ambulance = { 'EMS', 'Ambulance' },
         firetruk = { 'Fire', 'Truck' },
-        -- Motorcycles
         bati = { 'Pegassi', 'Bati 801' },
         bati2 = { 'Pegassi', 'Bati 801RR' },
         akuma = { 'Dinka', 'Akuma' },
         carbonrs = { 'Nagasaki', 'Carbon RS' },
         double = { 'Dinka', 'Double-T' },
         hakuchou = { 'Shitzu', 'Hakuchou' },
-        -- Vans
         speedo = { 'Vapid', 'Speedo' },
         burrito = { 'Declasse', 'Burrito' },
         rumpo = { 'Bravado', 'Rumpo' },
-        -- Trucks
         benson = { 'Vapid', 'Benson' },
         mule = { 'Maibatsu', 'Mule' },
         phantom = { 'JoBuilt', 'Phantom' },
@@ -372,28 +339,20 @@ function VehicleUtils.ResolveMakeModel(spawnName)
 
     local lowerName = spawnName:lower()
 
-    -- Check known vehicles
     if MANUFACTURERS[lowerName] then
         return MANUFACTURERS[lowerName][1], MANUFACTURERS[lowerName][2]
     end
 
-    -- Fallback: try to parse the spawn name
-    -- Strip common prefixes (pd, so, etc. followed by digits)
     local cleaned = spawnName:gsub('^%a%a?%d+', '')
     if cleaned == '' then
         cleaned = spawnName
     end
 
-    -- Capitalize first letter
     local model = cleaned:sub(1, 1):upper() .. cleaned:sub(2)
 
     return 'Unknown', model
 end
 
---- Hash → spawnName reverse lookup. Built at load by joaat-hashing every
---- name in shared/vehicle_names.lua. ESX's owned_vehicles.vehicle JSON
---- stores `model` as a joaat hash int, so without this we'd only have
---- the raw number.
 local HASH_TO_SPAWN = {}
 local _hashCount = 0
 if _G.VEHICLE_NAMES then
@@ -401,18 +360,15 @@ if _G.VEHICLE_NAMES then
         if type(name) == 'string' and name ~= '' then
             local h = GetHashKey(name)
             HASH_TO_SPAWN[h] = name
-            -- joaat is unsigned 32-bit; Lua returns it signed. Map both.
             if h < 0 then HASH_TO_SPAWN[h + 4294967296] = name end
             _hashCount = _hashCount + 1
         end
     end
     print(('[CDECAD-VEHICLES] Loaded %d vehicle hash mappings'):format(_hashCount))
 else
-    print('^1[CDECAD-VEHICLES] VEHICLE_NAMES global missing — make sure shared/vehicle_names.lua loads BEFORE shared/vehicles.lua in fxmanifest.^7')
+    print('^1[CDECAD-VEHICLES] VEHICLE_NAMES global missing - make sure shared/vehicle_names.lua loads BEFORE shared/vehicles.lua in fxmanifest.^7')
 end
 
---- Convert a joaat hash (number or numeric string) back to its spawnName.
---- Returns nil if the hash isn't in the table.
 function VehicleUtils.ResolveSpawnNameByHash(hashValue)
     if hashValue == nil then return nil end
     local n = tonumber(hashValue)
