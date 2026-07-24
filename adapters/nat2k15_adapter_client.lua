@@ -1,21 +1,7 @@
---[[
-    NAT2k15 adapter — client companion.
 
-    NAT2k15's GetCharacter export is CLIENT-side only. The server adapter
-    can't see the active character on its own, so this script polls the
-    export locally and pushes the active char id to the server whenever it
-    changes. The server adapter listens on `cdecad-sync:server:characterChanged`
-    and resolves the row from the DB.
 
-    Falls back across a list of export names (different NAT2k15 builds rename
-    the function). If none of them are callable, logs a single warning and
-    stops polling so we don't spam the console.
-]]
 
--- Run only when this resource is acting as the NAT2k15 adapter.
 CreateThread(function()
-    -- Wait for shared config to finish loading. Config.Framework is set by
-    -- framework_detect.lua before bootstrap; give it a moment to settle.
     local deadline = GetGameTimer() + 15000
     while (not Config or Config.Framework == nil) and GetGameTimer() < deadline do
         Wait(250)
@@ -54,14 +40,13 @@ CreateThread(function()
                 end
             end
         end
-        -- Second return value indicates whether any export was even callable.
         return nil, false
     end
 
     local lastSeenCharId = nil
     local warnedMissing  = false
     local missingCount   = 0
-    local MISSING_LIMIT  = 6   -- ~6 polls of nothing-callable before we give up
+    local MISSING_LIMIT  = 6
 
     if Utils and Utils.Debug then
         Utils.Debug(('nat2k15 client adapter: polling every %dms'):format(interval))
