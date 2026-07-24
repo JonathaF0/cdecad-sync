@@ -20,7 +20,6 @@ CreateThread(function()
         return
     end
 
-    -- The framework may start after us; poll for up to 30s.
     local deadline = GetGameTimer() + 30000
     while GetGameTimer() < deadline do
         for name, _ in pairs(Adapter.impls) do
