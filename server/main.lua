@@ -1,6 +1,6 @@
 local VehicleUtils = load(LoadResourceFile(GetCurrentResourceName(), 'shared/vehicles.lua'))()
 
-local syncedCivilians = {}   -- ssn -> CAD civilian id
+local syncedCivilians = {}
 local syncedVehicles  = {}
 
 local function adapter()
@@ -11,9 +11,6 @@ local function adapter()
     return Adapter.active
 end
 
--- =============================================================================
--- BUILD + SYNC
--- =============================================================================
 
 local function buildCivilianPayload(source, data)
     local discordId = nil
@@ -38,18 +35,13 @@ local function buildCivilianPayload(source, data)
     }
 end
 
-local SyncPlayerVehicles  -- forward
+local SyncPlayerVehicles
 local function SyncCharacter(source, isNew)
     local a = adapter(); if not a then return end
 
     local player = a.GetPlayer(source)
     if not player then
         Utils.Debug('SyncCharacter: no player for source', source)
-        return
-    end
-
-    if not CDECAD_Discord.ShouldSyncPlayer(source) then
-        Utils.Debug('Player has excluded Discord role; skipping sync')
         return
     end
 
@@ -126,9 +118,6 @@ SyncPlayerVehicles = function(source)
     end)
 end
 
--- =============================================================================
--- UNIFIED LIFECYCLE EVENTS
--- =============================================================================
 
 AddEventHandler('cdecad-sync:characterLoaded', function(source, ssn, isNew)
     Utils.Debug('characterLoaded:', source, ssn, 'isNew=' .. tostring(isNew))
@@ -138,9 +127,6 @@ end)
 
 AddEventHandler('cdecad-sync:characterUnloaded', function(source, ssn)
     Utils.Debug('characterUnloaded:', source, ssn)
-    if CDECAD_Discord and CDECAD_Discord.ClearCache then
-        CDECAD_Discord.ClearCache(source)
-    end
 end)
 
 AddEventHandler('cdecad-sync:characterUpdated', function(source, ssn)
@@ -156,9 +142,6 @@ AddEventHandler('cdecad-sync:characterDeleted', function(ssn)
     end
 end)
 
--- =============================================================================
--- CLIENT-TRIGGERED EVENTS (framework-agnostic)
--- =============================================================================
 
 RegisterNetEvent('cdecad-sync:server:updateMugshot', function(mugshotBase64)
     local src = source
@@ -190,97 +173,7 @@ RegisterNetEvent('cdecad-sync:server:registerVehicle', function(vehicleData)
     end)
 end)
 
-RegisterNetEvent('cdecad-sync:server:reportStolen', function(plate, description)
-    local src = source
-    local a = adapter(); if not a or not Config.Sync.SyncVehicleStatus then return end
 
-    CDECAD_API.GetVehicle(plate, function(success, vehicleData)
-        if success and vehicleData then
-            CDECAD_API.ReportVehicleStolen(vehicleData.id, true, description, function(stealSuccess)
-                if stealSuccess then
-                    a.Notify(src, 'success', Config.Locale['vehicle_reported_stolen'])
-                end
-            end)
-        end
-    end)
-end)
-
-RegisterNetEvent('cdecad-sync:server:911call', function(callData)
-    local src = source
-    local a = adapter()
-    if not Config.Calls.Enabled then return end
-
-    local canCall, remaining = Utils.CheckRateLimit('911_' .. src, Config.Calls.Cooldown)
-    if not canCall then
-        if a then a.Notify(src, 'error', Config.Locale['911_cooldown']:gsub('{time}', tostring(remaining))) end
-        return
-    end
-
-    local callerName = 'Anonymous'
-    if not callData.anonymous and a then
-        local p = a.GetPlayer(src)
-        if p then
-            local d = a.ExtractCharacterData(p)
-            if d then callerName = (d.firstName or '') .. ' ' .. (d.lastName or '') end
-        end
-    end
-
-    CDECAD_API.Send911Call({
-        callType    = callData.callType or 'Emergency Call',
-        location    = callData.location or callData.street or 'Unknown',
-        callerName  = callerName,
-        coords      = callData.coords,
-        x = callData.coords and callData.coords.x,
-        y = callData.coords and callData.coords.y,
-        z = callData.coords and callData.coords.z,
-        postal      = callData.postal,
-        description = callData.description,
-        priority    = callData.priority,
-        isAnonymous = callData.anonymous,
-        isNPC       = false,
-        reportType  = 'Player',
-    }, function(success)
-        if success then
-            if Config.Calls.NotifyOnSuccess and a then
-                a.Notify(src, 'success', Config.Locale['911_sent'])
-            end
-        else
-            if a then a.Notify(src, 'error', Config.Locale['cad_offline']) end
-        end
-    end)
-end)
-
-RegisterNetEvent('cdecad-sync:server:npcReport', function(reportData)
-    if not Config.NPCReports.Enabled then return end
-
-    local locationKey = ('npc_%s_%d_%d'):format(
-        reportData.reportType,
-        math.floor((reportData.coords and reportData.coords.x or 0) / 100),
-        math.floor((reportData.coords and reportData.coords.y or 0) / 100))
-
-    local cooldown = (Config.NPCReports[reportData.reportType] and Config.NPCReports[reportData.reportType].Cooldown) or 60
-    if not Utils.CheckRateLimit(locationKey, cooldown) then return end
-
-    CDECAD_API.Send911Call({
-        callType    = reportData.callType or 'Suspicious Activity',
-        location    = reportData.location or reportData.street or 'Unknown',
-        callerName  = 'Anonymous Witness',
-        coords      = reportData.coords,
-        x = reportData.coords and reportData.coords.x,
-        y = reportData.coords and reportData.coords.y,
-        z = reportData.coords and reportData.coords.z,
-        postal      = reportData.postal,
-        isAnonymous = true,
-        isNPC       = true,
-        reportType  = reportData.reportType or 'NPC',
-    }, function(success)
-        if success then Utils.Debug('NPC report sent:', reportData.reportType) end
-    end)
-end)
-
--- =============================================================================
--- LOOKUPS (callback exports for MDT / tablet)
--- =============================================================================
 
 lib.callback.register('cdecad-sync:server:lookupCivilian', function(_, identifier)
     local result, done = nil, false
@@ -302,19 +195,10 @@ lib.callback.register('cdecad-sync:server:lookupVehicle', function(_, plate)
     return result
 end)
 
--- =============================================================================
--- EXPORTS
--- =============================================================================
 
 exports('SyncCharacter', function(source)
     SyncCharacter(source, false)
     return true
-end)
-
-exports('Send911Call', function(callData)
-    CDECAD_API.Send911Call(callData, function(success)
-        Utils.Debug('Export Send911Call result:', success)
-    end)
 end)
 
 exports('GetSyncedCivilianId', function(ssn)
@@ -330,9 +214,6 @@ exports('GetActiveFramework', function()
     return Config.Framework
 end)
 
--- =============================================================================
--- STARTUP
--- =============================================================================
 
 AddEventHandler('cdecad-sync:adapterReady', function(name)
     print(('[CDECAD-SYNC] Adapter ready: %s'):format(name))
@@ -358,8 +239,8 @@ AddEventHandler('cdecad-sync:adapterReady', function(name)
 end)
 
 if not Config.API_KEY or Config.API_KEY == '' then
-    print('^1[CDECAD-SYNC] CDE_CAD_API_KEY is not set — every CAD request will 401. See server/secrets.lua.^0')
+    print('^1[CDECAD-SYNC] CDE_CAD_API_KEY is not set - every CAD request will 401. See server/secrets.lua.^0')
 end
 if not Config.API_URL or Config.API_URL == '' then
-    print('^1[CDECAD-SYNC] CDE_CAD_API_URL is not set — CAD requests have no target.^0')
+    print('^1[CDECAD-SYNC] CDE_CAD_API_URL is not set - CAD requests have no target.^0')
 end
