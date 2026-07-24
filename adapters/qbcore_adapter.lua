@@ -1,6 +1,3 @@
-
-
-
 local impl = {}
 
 local _QBCore
@@ -161,19 +158,29 @@ end
 function impl.RegisterLifecycleEvents()
     Utils.Debug('[qbcore_adapter] Registering lifecycle events')
 
-    AddEventHandler('QBCore:Server:OnPlayerLoaded', function()
-        local src = source
+    local loadDebounce = {}
+    local function onLoaded(player)
+        local src = (player and player.PlayerData and player.PlayerData.source) or source
+        if not src or src == 0 then
+            Utils.Debug('[qbcore_adapter] PlayerLoaded: no source')
+            return
+        end
+        if loadDebounce[src] then return end
+        loadDebounce[src] = true
+        SetTimeout(5000, function() loadDebounce[src] = nil end)
         SetTimeout(2000, function()
-            local player = impl.GetPlayer(src)
-            if not player or not player.PlayerData then
-                Utils.Debug('[qbcore_adapter] OnPlayerLoaded: player not found for', src)
+            local p = impl.GetPlayer(src)
+            if not p or not p.PlayerData then
+                Utils.Debug('[qbcore_adapter] PlayerLoaded: player not found for', src)
                 return
             end
-            local ssn = player.PlayerData.citizenid
+            local ssn = p.PlayerData.citizenid
             Utils.Debug('[qbcore_adapter] characterLoaded ->', src, ssn)
             TriggerEvent('cdecad-sync:characterLoaded', src, ssn, false)
         end)
-    end)
+    end
+    AddEventHandler('QBCore:Server:PlayerLoaded', onLoaded)
+    AddEventHandler('QBCore:Server:OnPlayerLoaded', onLoaded)
 
     AddEventHandler('QBCore:Server:OnPlayerUnload', function(src)
         local player = impl.GetPlayer(src)
