@@ -4,12 +4,11 @@ local function getConvar(name, default)
     return v
 end
 
--- API_URL historically had the /api suffix; preserve that for call sites.
-local baseUrl = getConvar('CDE_CAD_API_URL', '')
+local baseUrl = getConvar('CDE_CAD_API_URL', ''):gsub('/$', '')
 if baseUrl ~= '' and not baseUrl:find('/api$') then
-    Config.API_URL = baseUrl:gsub('/$', '') .. '/api'
+    Config.API_URL = baseUrl .. '/api'
 else
-    Config.API_URL = baseUrl:gsub('/$', '')
+    Config.API_URL = baseUrl
 end
 
 Config.API_KEY      = getConvar('CDE_CAD_API_KEY', '')
