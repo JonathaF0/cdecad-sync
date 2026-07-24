@@ -1,39 +1,11 @@
---[[
-    NAT2k15 framework adapter.
 
-    NAT2k15 is the trickiest framework we support:
-      * It doesn't have a single agreed-upon server-side character-load event,
-        so we listen to every common variant defined in
-        Config.NAT2k15.Events.CharacterLoaded / .CharacterUnloaded.
-      * It doesn't expose a server-side "player" Lua object — character data
-        lives entirely in MySQL and must be fetched by id.
-      * Its GetCharacter export is CLIENT-side only, so the companion client
-        adapter polls it and pushes the active character id to the server
-        whenever it changes (nat2k15_adapter_client.lua).
 
-    The "synthetic player" we return is a plain table:
-        { source = src, ssn = charDbId, raw = <row from characters table> }
-    `raw` is the row most recently observed for that source; consumers should
-    treat it as opaque and read it via ExtractCharacterData() so the column
-    mapping stays in one place.
-]]
 
 local impl = {}
 
--- =============================================================================
--- INTERNAL STATE
--- =============================================================================
--- activeChars[source] = { ssn = <charDbId number>, raw = <characters row> }
--- Populated by the lifecycle events below and consumed by every Get* method.
 local activeChars = {}
 
--- =============================================================================
--- DB HELPERS
--- =============================================================================
 
--- Fetch a characters row by primary key. Synchronous wrapper around
--- oxmysql:execute via a flag-flip loop — only used inside the adapter, never
--- on a hot path.
 local function FetchCharacterByIdSync(charDbId)
     local cfg = Config.NAT2k15 and Config.NAT2k15.Database
     if not cfg or not charDbId then return nil end
@@ -52,13 +24,11 @@ local function FetchCharacterByIdSync(charDbId)
         end
     )
 
-    -- Bounded wait — bail after ~2s rather than hanging the caller forever.
     local deadline = GetGameTimer() + 2000
     while not done and GetGameTimer() < deadline do Wait(5) end
     return row
 end
 
--- Async variant used by GetPlayerByIdentifier.
 local function FetchCharacterByIdAsync(charDbId, cb)
     local cfg = Config.NAT2k15 and Config.NAT2k15.Database
     if not cfg or not charDbId then cb(nil); return end
@@ -74,7 +44,6 @@ local function FetchCharacterByIdAsync(charDbId, cb)
     )
 end
 
--- Pull a char id out of whatever shape an event handed us.
 local function ParseEventCharId(eventArg)
     if type(eventArg) == 'number' then
         return eventArg
@@ -86,9 +55,6 @@ local function ParseEventCharId(eventArg)
     return nil
 end
 
--- =============================================================================
--- PLAYER LOOKUP
--- =============================================================================
 
 function impl.GetPlayer(source)
     if not source then return nil end
@@ -121,15 +87,12 @@ function impl.GetPlayerByIdentifier(charDbId)
     if not row then return nil end
 
     return {
-        source = nil,         -- offline lookup; caller shouldn't assume a session
+        source = nil,
         ssn    = id,
         raw    = row,
     }
 end
 
--- =============================================================================
--- IDENTITY
--- =============================================================================
 
 function impl.ExtractCharacterData(player)
     if not player or not player.raw then return nil end
@@ -160,7 +123,7 @@ function impl.ExtractCharacterData(player)
         lastName    = read('LastName'),
         dateOfBirth = Utils.FormatDate(read('Dob')),
         gender      = Utils.ConvertGender(read('Gender')),
-        phone       = nil,                  -- NAT2k15 default schema has no phone column
+        phone       = nil,
         ssn         = idVal and tostring(idVal) or nil,
         identifier  = identifier,
         nationality = 'American',
@@ -185,19 +148,10 @@ function impl.GetCharacterSSN(source)
     return tostring(entry.ssn)
 end
 
--- =============================================================================
--- VEHICLES
--- =============================================================================
--- NAT2k15's default schema doesn't ship a player-owned-vehicles table, so we
--- can't enumerate them server-side. Callers should fall back to the /regveh
--- workflow (player explicitly registers the vehicle they're in).
 function impl.GetPlayerVehicles(source, callback)
     if callback then callback({}) end
 end
 
--- =============================================================================
--- JOB / ON-DUTY
--- =============================================================================
 
 function impl.GetPlayerJob(source)
     local entry = activeChars[source]
@@ -213,24 +167,16 @@ function impl.GetPlayerJob(source)
     return { name = tostring(dept), grade = 0 }
 end
 
--- NAT2k15 has no on-duty concept at the framework level, so location syncing
--- is effectively disabled for this adapter.
 function impl.IsOnDuty(source)
     return false
 end
 
--- =============================================================================
--- NOTIFICATIONS
--- =============================================================================
 
 function impl.Notify(source, level, message)
     if not source then return end
     TriggerClientEvent('cdecad-sync:client:notify', source, level, message)
 end
 
--- =============================================================================
--- LIFECYCLE
--- =============================================================================
 
 local function emitLoaded(src, charId, row)
     activeChars[src] = { ssn = charId, raw = row }
@@ -247,12 +193,10 @@ local function emitUnloaded(src)
     TriggerEvent('cdecad-sync:characterUnloaded', src, ssn and tostring(ssn) or nil)
 end
 
--- Resolve, cache and emit a load given whatever id we have.
 local function resolveAndLoad(src, charId)
     if not src or src == 0 then return end
     if not charId then return end
 
-    -- Avoid redundant fires for the same character on the same source.
     local existing = activeChars[src]
     if existing and existing.ssn == charId and existing.raw then
         return
@@ -263,6 +207,17 @@ local function resolveAndLoad(src, charId)
             Utils.Debug(('nat2k15: no row found for charId=%s'):format(tostring(charId)))
             return
         end
+
+        local discordCol = (Config.NAT2k15.Database.Columns.Discord) or 'discord'
+        local rowDiscord = row[discordCol] and tostring(row[discordCol]) or nil
+        local srcDiscord = impl.GetPlayerIdentifier(src, 'discord')
+        if srcDiscord then srcDiscord = srcDiscord:gsub('^discord:', '') end
+        if rowDiscord and rowDiscord ~= '' and srcDiscord and rowDiscord ~= srcDiscord then
+            print(('^1[CDECAD-SYNC] nat2k15: rejected characterChanged for src %s , charId %s belongs to discord %s, not the caller (%s).^0')
+                :format(tostring(src), tostring(charId), rowDiscord, tostring(srcDiscord)))
+            return
+        end
+
         emitLoaded(src, charId, row)
     end)
 end
@@ -271,7 +226,6 @@ function impl.RegisterLifecycleEvents()
     local nat = Config.NAT2k15 or {}
     local events = nat.Events or {}
 
-    -- --- Load events ------------------------------------------------------
     local loadNames = events.CharacterLoaded or {}
     local seenLoad  = {}
     for _, name in ipairs(loadNames) do
@@ -286,15 +240,12 @@ function impl.RegisterLifecycleEvents()
                 if charId then
                     resolveAndLoad(src, charId)
                 else
-                    -- No id in the event payload — wait for the client poll
-                    -- to push one via cdecad-sync:server:characterChanged.
                     Utils.Debug('nat2k15: load event with no id; awaiting client push')
                 end
             end)
         end
     end
 
-    -- --- Unload events ----------------------------------------------------
     local unloadNames = events.CharacterUnloaded or {}
     local seenUnload  = {}
     for _, name in ipairs(unloadNames) do
@@ -312,10 +263,6 @@ function impl.RegisterLifecycleEvents()
         end
     end
 
-    -- --- Client-side push fallback ---------------------------------------
-    -- The client polls NAT2k15's client-only GetCharacter export and pushes
-    -- the active char id here whenever it changes. This is the only path
-    -- that works on NAT2k15 builds that don't fire any server-side event.
     RegisterNetEvent('cdecad-sync:server:characterChanged', function(charId)
         local src = source
         if not src or src == 0 then return end
@@ -331,8 +278,6 @@ function impl.RegisterLifecycleEvents()
         local existing = activeChars[src]
         if existing and existing.ssn == id then return end
 
-        -- If we had a different char loaded, fire unload first so consumers
-        -- see a clean switch.
         if existing and existing.ssn and existing.ssn ~= id then
             emitUnloaded(src)
         end
@@ -340,7 +285,6 @@ function impl.RegisterLifecycleEvents()
         resolveAndLoad(src, id)
     end)
 
-    -- --- Drop cleanup -----------------------------------------------------
     AddEventHandler('playerDropped', function()
         local src = source
         if not src then return end
@@ -353,7 +297,4 @@ function impl.RegisterLifecycleEvents()
     Utils.Debug('nat2k15 adapter: lifecycle events registered')
 end
 
--- =============================================================================
--- REGISTER
--- =============================================================================
 Adapter.register('nat2k15', impl)
