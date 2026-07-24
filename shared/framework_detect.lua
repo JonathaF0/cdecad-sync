@@ -1,6 +1,6 @@
 local FRAMEWORK_RESOURCES = {
     esx     = { 'es_extended' },
-    qbox    = { 'qbx_core' },                    -- check qbox before qb-core; it forks it
+    qbox    = { 'qbx_core' },
     qbcore  = { 'qb-core' },
     nat2k15 = { 'nat2k15', 'NAT2K15' },
     vrp     = { 'vrp' },
